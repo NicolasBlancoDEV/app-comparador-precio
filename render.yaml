@@ -3,11 +3,9 @@ services:
     name: comparador-precios
     env: python
     plan: free
-    buildCommand: |
-      apt-get update && apt-get install -y tesseract-ocr tesseract-ocr-spa
-      pip install -r requirements.txt
-    startCommand: "python app.py"
-    repo: https://github.com/NicolasBlancoDEV/app-comparador-precio
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn --bind 0.0.0.0:$PORT app:app"
+    repo: https://github.com/<tu-usuario>/<tu-repositorio>
     branch: main
     envVars:
       - key: CLOUDINARY_CLOUD_NAME

@@ -6,24 +6,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import secrets
 import pytz
-import cloudinary
-import cloudinary.uploader
-import re
-import requests
-from io import BytesIO
-from PIL import Image
-import pytesseract
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'supersecretkey'
 DATABASE = '/opt/render/project/src/database.db'
-
-# Configurar Cloudinary
-cloudinary.config(
-    cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
-    api_key=os.getenv('CLOUDINARY_API_KEY'),
-    api_secret=os.getenv('CLOUDINARY_API_SECRET')
-)
 
 # Configurar Flask-Login
 login_manager = LoginManager()
@@ -116,15 +102,6 @@ def init_db():
                 user_id INTEGER NOT NULL,
                 token TEXT NOT NULL,
                 expiry TEXT NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES users(id)
-            )''')
-            # Tabla para tickets
-            c.execute('''CREATE TABLE IF NOT EXISTS tickets (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                image_url TEXT NOT NULL,
-                place TEXT NOT NULL,
-                upload_date TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )''')
             conn.commit()
@@ -482,126 +459,6 @@ def reset_password(token):
         print(f"Error al procesar el restablecimiento: {e}")
         return redirect(url_for('login'))
 
-# Subir ticket y procesar con OCR
-@app.route('/upload_ticket', methods=['GET', 'POST'])
-@login_required
-def upload_ticket():
-    if request.method == 'POST':
-        place = request.form['place']
-        image = request.files['image']
-
-        if not (place and image):
-            flash('Por favor, completa todos los campos.')
-            return redirect(url_for('upload_ticket'))
-
-        try:
-            # Subir imagen a Cloudinary
-            upload_result = cloudinary.uploader.upload(image, folder="tickets")
-            image_url = upload_result['secure_url']
-        except Exception as e:
-            flash(f'Error al subir la imagen: {e}')
-            print(f"Error al subir la imagen: {e}")
-            return redirect(url_for('upload_ticket'))
-
-        try:
-            # Descargar la imagen desde Cloudinary para procesarla
-            response = requests.get(image_url)
-            img = Image.open(BytesIO(response.content))
-
-            # Configurar pytesseract para usar el idioma español
-            custom_config = r'--oem 3 --psm 6 -l spa'
-            text = pytesseract.image_to_string(img, config=custom_config)
-
-            # Procesar el texto para extraer productos
-            extracted_products = process_ticket_text(text, place)
-
-            # Guardar los productos en la base de datos
-            with get_db_connection() as conn:
-                c = conn.cursor()
-                for product in extracted_products:
-                    c.execute('INSERT INTO products (name, brand, price, place, upload_date) VALUES (?, ?, ?, ?, ?)',
-                              (product['name'], product['brand'], product['price'], place, get_current_time()))
-                conn.commit()
-
-            # Guardar el ticket en la base de datos
-            with get_db_connection() as conn:
-                c = conn.cursor()
-                c.execute('INSERT INTO tickets (user_id, image_url, place, upload_date) VALUES (?, ?, ?, ?)',
-                          (current_user.id, image_url, place, get_current_time()))
-                conn.commit()
-
-            flash(f'Ticket subido exitosamente. Se extrajeron {len(extracted_products)} productos.')
-            return redirect(url_for('upload_ticket'))
-        except Exception as e:
-            flash(f'Error al procesar el ticket: {e}')
-            print(f"Error al procesar el ticket: {e}")
-            return redirect(url_for('upload_ticket'))
-
-    try:
-        with get_db_connection() as conn:
-            c = conn.cursor()
-            c.execute('''SELECT u.username, t.image_url, t.place, t.upload_date 
-                         FROM tickets t 
-                         JOIN users u ON t.user_id = u.id 
-                         ORDER BY t.upload_date DESC''')
-            tickets = c.fetchall()
-            tickets = [(t[0], t[1], t[2], to_argentina_time(t[3])) for t in tickets]
-    except sqlite3.Error as e:
-        flash(f'Error al cargar los tickets: {e}')
-        print(f"Error al cargar los tickets: {e}")
-        tickets = []
-    return render_template('upload_ticket.html', tickets=tickets)
-
-# Función para procesar el texto del ticket y extraer productos
-def process_ticket_text(text, place):
-    lines = text.split('\n')
-    products = []
-
-    # Expresiones regulares para identificar precios
-    price_pattern = re.compile(r'\d+[,.]\d{1,2}|\d+')
-
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-
-        # Buscar un precio en la línea
-        price_match = price_pattern.search(line)
-        if price_match:
-            price_str = price_match.group()
-            try:
-                # Convertir el precio a float (manejar diferentes formatos)
-                price_str = price_str.replace(',', '.')
-                price = float(price_str)
-            except ValueError:
-                continue
-
-            # Extraer el nombre del producto (texto antes del precio)
-            product_name = line[:price_match.start()].strip()
-            if not product_name:
-                continue
-
-            # Intentar separar marca y nombre (simplificado)
-            words = product_name.split()
-            if len(words) > 1:
-                brand = words[0]
-                name = ' '.join(words[1:])
-            else:
-                brand = 'Desconocida'
-                name = product_name
-
-            # Filtrar productos con nombres muy cortos o irrelevantes
-            if len(name) < 3:
-                continue
-
-            products.append({
-                'name': name,
-                'brand': brand,
-                'price': price
-            })
-
-    return products
-
 # Agregar producto al carrito
 @app.route('/add_to_cart/<int:product_id>', methods=['POST'])
 def add_to_cart(product_id):
@@ -650,5 +507,3 @@ def clear_cart():
 # Inicializar la app
 with app.app_context():
     init_db()
-
-# No necesitamos app.run() porque Render usará gunicorn
