@@ -169,6 +169,39 @@ def upload_db():
 
     return render_template('upload_db.html')
 
+# Comparar precios
+@app.route('/compare', methods=['GET', 'POST'])
+def compare_prices():
+    search_query = ''
+    product_results = []
+    if request.method == 'POST':
+        search_query = request.form.get('search', '').strip()
+        if not search_query:
+            flash('Por favor, ingresa un nombre de producto para comparar.')
+            return redirect(url_for('compare_prices'))
+
+        try:
+            with get_db_connection() as conn:
+                c = conn.cursor()
+                # Buscar productos que coincidan con el nombre (ignorando mayúsculas/minúsculas)
+                c.execute('''SELECT name, brand, price, place, upload_date 
+                             FROM products 
+                             WHERE LOWER(name) LIKE ? 
+                             ORDER BY price ASC''', (f'%{search_query.lower()}%',))
+                products = c.fetchall()
+                # Agrupar por lugar y mantener el precio más reciente
+                product_dict = {}
+                for product in products:
+                    key = (product[0], product[1], product[3])  # (name, brand, place)
+                    if key not in product_dict or product[4] > product_dict[key][4]:
+                        product_dict[key] = (product[0], product[1], product[2], product[3], to_argentina_time(product[4]))
+                product_results = list(product_dict.values())
+        except sqlite3.Error as e:
+            flash(f'Error al buscar productos: {e}')
+            print(f"Error al buscar productos: {e}")
+
+    return render_template('compare.html', product_results=product_results, search_query=search_query)
+
 # Registro de usuarios
 @app.route('/register', methods=['GET', 'POST'])
 def register():

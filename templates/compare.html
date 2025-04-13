@@ -2,36 +2,39 @@
 
 {% block content %}
 <h2>Comparar Precios</h2>
-<form method="POST" class="mt-4">
-    <div class="mb-3">
-        <label for="name" class="form-label">Nombre del Producto</label>
-        <input type="text" class="form-control" id="name" name="name" placeholder="Ej: Mayonesa">
+
+<form method="POST" class="mb-4">
+    <div class="input-group">
+        <input type="text" class="form-control" name="search" placeholder="Buscar producto (Ej: Leche)" value="{{ search_query }}">
+        <button type="submit" class="btn btn-primary">Comparar</button>
     </div>
-    <div class="mb-3">
-        <label for="brand" class="form-label">Marca</label>
-        <input type="text" class="form-control" id="brand" name="brand" placeholder="Ej: Hellmann's">
-    </div>
-    <button type="submit" class="btn btn-primary">Buscar</button>
 </form>
 
-{% if products %}
-    <h3 class="mt-5">Resultados</h3>
-    <div class="row">
-        {% for product in products %}
-            <div class="col-md-4 mb-4">
-                <div class="card">
-                    <img src="{{ product[5] }}" class="card-img-top" alt="{{ product[1] }}">
-                    <div class="card-body">
-                        <h5 class="card-title">{{ product[1] }} - {{ product[2] }}</h5>
-                        <p class="card-text">
-                            Precio: {{ product[3]|format_price }}<br>
-                            Lugar: {{ product[4] }}<br>
-                            Fecha: {{ product[6] }}
-                        </p>
-                    </div>
-                </div>
-            </div>
-        {% endfor %}
-    </div>
+{% if product_results %}
+    <h3>Resultados para "{{ search_query }}"</h3>
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Producto</th>
+                <th>Marca</th>
+                <th>Precio</th>
+                <th>Lugar</th>
+                <th>Fecha</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for product in product_results %}
+                <tr>
+                    <td>{{ product[0] }}</td>
+                    <td>{{ product[1] }}</td>
+                    <td>{{ product[2] | format_price }}</td>
+                    <td>{{ product[3] }}</td>
+                    <td>{{ product[4] }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% elif search_query %}
+    <p>No se encontraron productos que coincidan con "{{ search_query }}".</p>
 {% endif %}
 {% endblock %}
