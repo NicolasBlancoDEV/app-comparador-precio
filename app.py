@@ -8,6 +8,11 @@ import secrets
 import pytz
 import cloudinary
 import cloudinary.uploader
+import re
+import requests
+from io import BytesIO
+from PIL import Image
+import pytesseract
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'supersecretkey'
@@ -158,7 +163,6 @@ def upload_db():
             return redirect(url_for('upload_db'))
 
         try:
-            # Guardar el archivo subido en la ubicación de DATABASE
             db_file.save(DATABASE)
             flash('Base de datos subida exitosamente.')
             return redirect(url_for('index'))
@@ -183,16 +187,14 @@ def compare_prices():
         try:
             with get_db_connection() as conn:
                 c = conn.cursor()
-                # Buscar productos que coincidan con el nombre (ignorando mayúsculas/minúsculas)
                 c.execute('''SELECT name, brand, price, place, upload_date 
                              FROM products 
                              WHERE LOWER(name) LIKE ? 
                              ORDER BY price ASC''', (f'%{search_query.lower()}%',))
                 products = c.fetchall()
-                # Agrupar por lugar y mantener el precio más reciente
                 product_dict = {}
                 for product in products:
-                    key = (product[0], product[1], product[3])  # (name, brand, place)
+                    key = (product[0], product[1], product[3])
                     if key not in product_dict or product[4] > product_dict[key][4]:
                         product_dict[key] = (product[0], product[1], product[2], product[3], to_argentina_time(product[4]))
                 product_results = list(product_dict.values())
@@ -281,7 +283,6 @@ def login():
 @login_required
 def logout():
     logout_user()
-    # Limpiar el carrito al cerrar sesión
     session.pop('cart', None)
     response = make_response(redirect(url_for('index')))
     response.set_cookie('username', '', expires=0)
@@ -481,7 +482,7 @@ def reset_password(token):
         print(f"Error al procesar el restablecimiento: {e}")
         return redirect(url_for('login'))
 
-# Subir ticket
+# Subir ticket y procesar con OCR
 @app.route('/upload_ticket', methods=['GET', 'POST'])
 @login_required
 def upload_ticket():
@@ -503,16 +504,37 @@ def upload_ticket():
             return redirect(url_for('upload_ticket'))
 
         try:
+            # Descargar la imagen desde Cloudinary para procesarla
+            response = requests.get(image_url)
+            img = Image.open(BytesIO(response.content))
+
+            # Configurar pytesseract para usar el idioma español
+            custom_config = r'--oem 3 --psm 6 -l spa'
+            text = pytesseract.image_to_string(img, config=custom_config)
+
+            # Procesar el texto para extraer productos
+            extracted_products = process_ticket_text(text, place)
+
+            # Guardar los productos en la base de datos
+            with get_db_connection() as conn:
+                c = conn.cursor()
+                for product in extracted_products:
+                    c.execute('INSERT INTO products (name, brand, price, place, upload_date) VALUES (?, ?, ?, ?, ?)',
+                              (product['name'], product['brand'], product['price'], place, get_current_time()))
+                conn.commit()
+
+            # Guardar el ticket en la base de datos
             with get_db_connection() as conn:
                 c = conn.cursor()
                 c.execute('INSERT INTO tickets (user_id, image_url, place, upload_date) VALUES (?, ?, ?, ?)',
                           (current_user.id, image_url, place, get_current_time()))
                 conn.commit()
-            flash('Ticket subido exitosamente!')
+
+            flash(f'Ticket subido exitosamente. Se extrajeron {len(extracted_products)} productos.')
             return redirect(url_for('upload_ticket'))
-        except sqlite3.Error as e:
-            flash(f'Error al guardar el ticket: {e}')
-            print(f"Error al guardar el ticket: {e}")
+        except Exception as e:
+            flash(f'Error al procesar el ticket: {e}')
+            print(f"Error al procesar el ticket: {e}")
             return redirect(url_for('upload_ticket'))
 
     try:
@@ -530,6 +552,56 @@ def upload_ticket():
         tickets = []
     return render_template('upload_ticket.html', tickets=tickets)
 
+# Función para procesar el texto del ticket y extraer productos
+def process_ticket_text(text, place):
+    lines = text.split('\n')
+    products = []
+
+    # Expresiones regulares para identificar precios
+    price_pattern = re.compile(r'\d+[,.]\d{1,2}|\d+')
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # Buscar un precio en la línea
+        price_match = price_pattern.search(line)
+        if price_match:
+            price_str = price_match.group()
+            try:
+                # Convertir el precio a float (manejar diferentes formatos)
+                price_str = price_str.replace(',', '.')
+                price = float(price_str)
+            except ValueError:
+                continue
+
+            # Extraer el nombre del producto (texto antes del precio)
+            product_name = line[:price_match.start()].strip()
+            if not product_name:
+                continue
+
+            # Intentar separar marca y nombre (simplificado)
+            words = product_name.split()
+            if len(words) > 1:
+                brand = words[0]
+                name = ' '.join(words[1:])
+            else:
+                brand = 'Desconocida'
+                name = product_name
+
+            # Filtrar productos con nombres muy cortos o irrelevantes
+            if len(name) < 3:
+                continue
+
+            products.append({
+                'name': name,
+                'brand': brand,
+                'price': price
+            })
+
+    return products
+
 # Agregar producto al carrito
 @app.route('/add_to_cart/<int:product_id>', methods=['POST'])
 def add_to_cart(product_id):
@@ -542,11 +614,9 @@ def add_to_cart(product_id):
                 flash('Producto no encontrado.')
                 return redirect(request.referrer or url_for('index'))
 
-            # Inicializar el carrito en la sesión si no existe
             if 'cart' not in session:
                 session['cart'] = []
 
-            # Agregar el producto al carrito
             session['cart'].append({
                 'id': product[0],
                 'name': product[1],
@@ -554,7 +624,7 @@ def add_to_cart(product_id):
                 'price': product[3],
                 'place': product[4]
             })
-            session.modified = True  # Marcar la sesión como modificada
+            session.modified = True
 
             flash(f'{product[1]} ({product[2]}) añadido al carrito.')
             return redirect(request.referrer or url_for('index'))

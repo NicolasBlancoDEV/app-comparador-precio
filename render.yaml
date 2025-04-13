@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: comparador-precios
+    env: python
+    plan: free
+    buildCommand: |
+      apt-get update && apt-get install -y tesseract-ocr tesseract-ocr-spa
+      pip install -r requirements.txt
+    startCommand: "python app.py"
+    repo: https://github.com/<tu-usuario>/<tu-repositorio>
+    branch: main
+    envVars:
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false

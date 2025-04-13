@@ -1,6 +1,7 @@
-flask
-gunicorn
-Werkzeug
-Flask-Login
-pytz
-cloudinary
+Flask==2.0.1
+Werkzeug==2.0.1
+Flask-Login==0.5.0
+pytz==2021.3
+cloudinary==1.29.0
+Pillow==9.5.0
+pytesseract==0.3.10
