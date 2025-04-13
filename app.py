@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, make_response, session
+from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, make_response, session, send_file
 import sqlite3
 import os
 from datetime import datetime, timedelta
@@ -131,6 +131,17 @@ def init_db():
 @app.route('/manifest.json')
 def serve_manifest():
     return send_from_directory('static', 'manifest.json')
+
+# Descargar la base de datos (solo para usuarios autenticados)
+@app.route('/download_db')
+@login_required
+def download_db():
+    try:
+        return send_file(DATABASE, as_attachment=True, download_name='database.db')
+    except Exception as e:
+        flash(f'Error al descargar la base de datos: {e}')
+        print(f"Error al descargar la base de datos: {e}")
+        return redirect(url_for('index'))
 
 # Registro de usuarios
 @app.route('/register', methods=['GET', 'POST'])
