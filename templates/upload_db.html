@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2>Subir Base de Datos</h2>
+
+<p>Sube un archivo <code>database.db</code> para restaurar los datos de la app.</p>
+
+<form method="POST" enctype="multipart/form-data" class="mt-4">
+    <div class="mb-3">
+        <label for="db_file" class="form-label">Seleccionar archivo</label>
+        <input type="file" class="form-control" id="db_file" name="db_file" accept=".db" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Subir Base de Datos</button>
+</form>
+
+<p class="mt-3">
+    <a href="{{ url_for('download_db') }}" class="btn btn-secondary">Descargar la Base de Datos Actual</a>
+</p>
+{% endblock %}

@@ -143,6 +143,32 @@ def download_db():
         print(f"Error al descargar la base de datos: {e}")
         return redirect(url_for('index'))
 
+# Subir la base de datos (solo para usuarios autenticados)
+@app.route('/upload_db', methods=['GET', 'POST'])
+@login_required
+def upload_db():
+    if request.method == 'POST':
+        if 'db_file' not in request.files:
+            flash('No se seleccionó ningún archivo.')
+            return redirect(url_for('upload_db'))
+
+        db_file = request.files['db_file']
+        if db_file.filename == '':
+            flash('No se seleccionó ningún archivo.')
+            return redirect(url_for('upload_db'))
+
+        try:
+            # Guardar el archivo subido en la ubicación de DATABASE
+            db_file.save(DATABASE)
+            flash('Base de datos subida exitosamente.')
+            return redirect(url_for('index'))
+        except Exception as e:
+            flash(f'Error al subir la base de datos: {e}')
+            print(f"Error al subir la base de datos: {e}")
+            return redirect(url_for('upload_db'))
+
+    return render_template('upload_db.html')
+
 # Registro de usuarios
 @app.route('/register', methods=['GET', 'POST'])
 def register():
